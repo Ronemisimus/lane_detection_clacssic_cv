@@ -3,6 +3,8 @@ import logging
 from process import process
 import os
 
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
+
 vid_files = os.listdir("videos")
 
 for f_vid in vid_files:
