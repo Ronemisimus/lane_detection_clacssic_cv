@@ -1,9 +1,6 @@
 import cv2
-import numpy as np
-import matplotlib.pyplot as plt
 import logging
-
-
+from process import process
 
 cap = cv2.VideoCapture("videos/0001-5400.mp4")
 
@@ -14,7 +11,9 @@ if not cap.isOpened():
 while cap.isOpened():
     ret, frame = cap.read()
     if ret == True:
-    
+        
+        frame = process(frame)
+
         # Display the resulting frame
         cv2.imshow('Frame',frame)
     
