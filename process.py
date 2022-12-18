@@ -10,6 +10,8 @@ def process(frame:np.ndarray):
 
     # resize image to get constant resolution? - might make the process better on diffrent videos in deffrent resolutions
 
+    # mabye filter at the start
+
     # equilize histogram
     
     # bilateralFilter
