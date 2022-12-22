@@ -33,7 +33,8 @@ def process(frame:np.ndarray,prev_lines):
     return frame, prev_lines
 
 def cut_img_center(img,width,height):
-    center = [width//2,height//2]
+    center_left = [width//2-width//20,height//2]
+    center_right = [width//2-width//20,height//2]
     right = [width,height-height//10]
     left = [0,height-height//10]
     left_corner=[0,height]
@@ -42,7 +43,8 @@ def cut_img_center(img,width,height):
     WHITE = (1,1,1)
     pts = [np.int32([
         left,
-        center,  
+        center_left,
+        center_right,  
         right])]
 
     mask = np.zeros_like(img, dtype=np.uint8)
