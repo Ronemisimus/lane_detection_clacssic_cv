@@ -30,12 +30,12 @@ for f_vid in vid_files:
         exit(1)
     else:
         logger.info("working on %s", f_vid)
-
+    prev_lines=[]
     while cap.isOpened():
         ret, frame = cap.read()
         if ret == True:
             
-            frame = process(frame)
+            frame, prev_lines = process(frame,prev_lines)
 
             # Display the resulting frame
             cv2.imshow('Frame',frame)

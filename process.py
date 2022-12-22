@@ -1,154 +1,63 @@
 import cv2
 import numpy as np
 
-def process(frame:np.ndarray):
+def process(frame:np.ndarray,prev_lines):
     height, width, depth = frame.shape    
     checked_area = frame.copy()
 
-    # resize to treat all videos equally?
+    checked_area = equalize_per_channel(checked_area)
 
-    # equilize histogram per channel
-    b,g,r  = cv2.split(checked_area)
-    b = histEquallize(b)
-    g = histEquallize(g)
-    r = histEquallize(r)
-    checked_area = cv2.merge((b,g,r))
+    checked_area = to_gray(checked_area)
 
-    # convert to gray
-    checked_area = cv2.cvtColor(checked_area, cv2.COLOR_BGR2GRAY)
+    checked_area = blur(checked_area,(5,5))
 
-    # Filter
-    checked_area = cv2.GaussianBlur(checked_area,ksize=(5,5),sigmaX=0)
+    high = 360
+    low=high//3
 
-    # dilate and erode to remove noise
-    kernel_params = (3,7)
-    checked_area = cv2.erode(checked_area,left_lane_kernel(*kernel_params),iterations=1)
-    checked_area = cv2.dilate(checked_area,left_lane_kernel(*kernel_params),iterations=1)
-    
-    checked_area = cv2.erode(checked_area,right_lane_kernel(*kernel_params),iterations=1)
-    checked_area = cv2.dilate(checked_area,right_lane_kernel(*kernel_params),iterations=1)
+    edges = canny(checked_area,low,high)
 
-    # canny
-    checked_area = cv2.Canny(checked_area,420,500)
+    checked_area = frame.copy()
 
-    # dilate and erode to remove noise
-    kernel_params = (3,30)
-    checked_area = cv2.dilate(checked_area,left_lane_kernel(*kernel_params),iterations=2)
-    checked_area = cv2.erode(checked_area,left_lane_kernel(*kernel_params),iterations=2)
-    
-    checked_area = cv2.dilate(checked_area,right_lane_kernel(*kernel_params),iterations=2)
-    checked_area = cv2.erode(checked_area,right_lane_kernel(*kernel_params),iterations=2)
+    checked_area = equalize_per_channel(checked_area)
 
-    # dilate and erode to connect striped lines
-    #checked_area = cv2.dilate(checked_area,np.ones((30,1)),iterations=1)
-    #checked_area = cv2.erode(checked_area,np.ones(30,1),iterations=1)
-    
+    checked_area = close(checked_area,left_lane_kernel(3,5))
+    checked_area = close(checked_area,right_lane_kernel(3,5))
 
-    """ # HSL
-    checked_area = cv2.cvtColor(checked_area,cv2.COLOR_BGR2HLS_FULL)
-    avg_l = np.average(checked_area[:,:,1][checked_area[:,:,1]>10])
+    dual_sobel = vertical_sobel(checked_area)
 
-    # HSL threshold
-    h, l, s = cv2.split(checked_area)
+    dual_sobel = equalize_per_channel(dual_sobel)
 
-    l = cv2.erode(l,right_lane_kernel(),iterations=1)
-    l = cv2.dilate(l,right_lane_kernel(),iterations=1)
-    
-    l = cv2.erode(l,left_lane_kernel(),iterations=1)
-    l = cv2.dilate(l,left_lane_kernel(),iterations=1)
+    high = 850
+    low=high//2
+    dual_sobel = canny(dual_sobel,low,high)
 
-    relation = 1.2
-    change_map = l>relation * avg_l   
-    l[change_map]=relation*l[change_map]
-    checked_area = cv2.merge((h,l,s))
-
-    # back to BGR
-    checked_area = cv2.cvtColor(checked_area,cv2.COLOR_HLS2BGR_FULL)
-    #checked_area = cv2.cvtColor(checked_area,cv2.COLOR_BGR2GRAY) """
-
-    # sobel?
-    """ left = cv2.Sobel(checked_area,cv2.CV_8U,1,0,ksize=3)
-    kernel = np.array([[1,0,-1],[2,0,-2],[1,0,-1]]) 
-    right = cv2.filter2D(checked_area,-1,kernel=kernel)
-    verticals = left+right
-    verticals = remove_triangle_edge(verticals,width,height)
-    checked_area = verticals """
-
-
-    # connect close lines (both sides of the thick lane line)
-
-
-    # threshold
-    #max_blue, max_green, max_red = np.max(checked_area,axis=(0,1))
-    #ratio =0.3
-    #lowb = (int(max_blue*ratio),int(max_green*ratio),int(max_red*ratio))
-    #highb = (int(max_blue),int(max_green),int(max_red))
-    #checked_area = cv2.inRange(checked_area, lowb, highb)
-    
-    # make double lines into single lines with a dilate erode oporation
-    #checked_area = cv2.filter2D(checked_area,-1,kernel=left_lane_kernel(2,7)*-1)
-    #checked_area = cv2.filter2D(checked_area,-1,kernel=right_lane_kernel(2,7)*-1)
-
-    #checked_area = cv2.erode(checked_area,left_lane_kernel(1,5),iterations=2)
-    
-    #checked_area = cv2.erode(checked_area,right_lane_kernel(1,5),iterations=2)
-
-
+    checked_area = np.bitwise_and(edges,dual_sobel)
 
     # extract triangle from image
     checked_area = cut_img_center(checked_area,width,height)
+
+    lines = get_lines(checked_area)
+    left_lane,right_lane = separate_lines(lines,0.3)
+
+    lines = choose_best_lines(frame,left_lane, right_lane)
+
+    lines, prev_lines = accumalative_avg(lines,prev_lines)
     
+    if lines is not None and np.sum(np.isnan(lines))==0:
+        lines = np.int32(lines)
+        x1,y1,x2,y2 = lines[0]
+        cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 10)
+        x1,y1,x2,y2 = lines[1]
+        cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 10)  
 
-    # hough transform
-    tol = 0.5
-    lines = cv2.HoughLinesP(checked_area,1,np.pi/180,50,minLineLength=50,maxLineGap=10)
-    if lines is not None:
-        right_lane = []
-        left_lane = []
-        for line in lines:
-            x1,y1,x2,y2 = line[0]
-            p = np.polyfit([x1,x2],[y1,y2],1)
-            if p[0]>=tol:
-                right_lane.append((x1,y1))
-                right_lane.append((x2,y2))
-            elif p[0]<=-tol:
-                left_lane.append((x1,y1))
-                left_lane.append((x2,y2))
-            cv2.line(frame,(x1,y1),(x2,y2),(0,0,255),2)
-        
-        
-        # choose best lines
-        if len(left_lane)>0:
-            left_lane = np.array(left_lane)
-            left_lane = np.polyfit(left_lane[:,0],left_lane[:,1],1)
-            x_left =  np.array([[2*width//5,1],[5*width//11,1]])
-            y_left = (x_left@left_lane).astype(int)
-            cv2.line(frame,(x_left[0,0],y_left[0]),(x_left[1,0],y_left[1]),(0,255,0),2)
-        else:
-            x_left=None
-        
-        if len(right_lane)>0:
-            right_lane = np.array(right_lane)
-            right_lane = np.polyfit(right_lane[:,0],right_lane[:,1],1)
-        
-            x_right = np.array([[3*width//5,1],[6*width//11,1]])
-            y_right = (x_right@right_lane).astype(int)
-
-            cv2.line(frame,(x_right[0,0],y_right[0]),(x_right[1,0],y_right[1]),(0,255,0),2)
-        else:
-            x_right = None
-
-        if x_left is not None and x_right is not None:
-            pts = [np.array([(x_left[0,0],y_left[0]),(x_right[0,0],y_right[0]),(x_right[1,0],y_right[1]),(x_left[1,0],y_left[1])], dtype=np.int32)]
-
-            cv2.fillPoly(frame,pts,color=(0,170,0))
-
-    return frame
+    return frame, prev_lines
 
 def cut_img_center(img,width,height):
     center = [width//2,height//2]
     right = [width,height-height//10]
     left = [0,height-height//10]
+    left_corner=[0,height]
+    right_corner=[width,height]
 
     WHITE = (1,1,1)
     pts = [np.int32([
@@ -159,10 +68,22 @@ def cut_img_center(img,width,height):
     mask = np.zeros_like(img, dtype=np.uint8)
     cv2.fillPoly(mask, pts, color=WHITE)
 
+    pts = [np.int32([
+        left,right,right_corner,left_corner
+    ])]
+
+    cv2.fillPoly(mask,pts,color=WHITE)
+
     img = np.where(mask ==1,img,0)
 
     return img
 
+def equalize_per_channel(img):
+    b,g,r  = cv2.split(img)
+    b = histEquallize(b)
+    g = histEquallize(g)
+    r = histEquallize(r)
+    return cv2.merge((b,g,r))
 
 def histEquallize(img):
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
@@ -175,10 +96,92 @@ def right_lane_kernel(k,m):
         for i in range(0,m-k+1)
     ])
 
-
 def left_lane_kernel(k,m):
     return np.array([
         [-1]*(m-k-i)+[1]*k+[-1]*i
         for i in range(0,m-k+1)
     ])
+
+def hsl_transform(img):
+    img = cv2.cvtColor(img,cv2.COLOR_BGR2HLS_FULL)
+
+    low_yellow = (73,161,120)
+    high_yellow = (86,254,255)
+
+    yellow_mask = cv2.inRange(img,low_yellow,high_yellow)
+
+    white_mask = cv2.inRange(img,200,255)
+
+    return np.bitwise_or(yellow_mask,white_mask)
+
+def vertical_sobel(img):
+    left = cv2.Sobel(img,cv2.CV_8U,1,0,ksize=3)
+    kernel = np.array([[1,0,-1],[2,0,-2],[1,0,-1]]) 
+    right = cv2.filter2D(img,-1,kernel=kernel)
+    return np.bitwise_or(left,right)
+
+def to_gray(img):
+    return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+def blur(img,ksize):
+    return cv2.GaussianBlur(img,ksize=ksize,sigmaX=0)
+
+def canny(img,low,high):
+    return cv2.Canny(img,low,high)
+
+def open(img,kernel):
+    return cv2.morphologyEx(img, cv2.MORPH_OPEN, kernel)
+
+def close(img,kernel):
+    return cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
+
+def get_lines(edges):
+    return cv2.HoughLinesP(edges,1,np.pi/180,10,minLineLength=30,maxLineGap=10)
+
+def separate_lines(lines, tol):
+    right_lane = []
+    left_lane = []
+    if lines is not None:
+        for line in lines:
+            x1,y1,x2,y2 = line[0]
+            p = np.polyfit([x1,x2],[y1,y2],1)
+            if p[0]>=tol:
+                right_lane.append(p)
+            elif p[0]<=-tol:
+                left_lane.append(p)
+    return left_lane, right_lane
+
+def choose_best_lines(img,left_lane,right_lane):
+    # choose best lines
+    if len(left_lane)>0 and len(right_lane)>0:
+        right_avg = np.average(right_lane, axis=0)
+        left_avg = np.average(left_lane, axis=0)
+        left_line = make_points(img, left_avg)
+        right_line = make_points(img, right_avg)
+        return np.array([left_line, right_line])
+    return None
+
+def make_points(image, average): 
+    slope, y_int = average 
+    y1 = image.shape[0]
+    y2 = int(y1*3//5)
+    x1 = int((y1-y_int)//slope)
+    x2 = int((y2-y_int)//slope)
+    return np.array([x1, y1, x2, y2])
+
+def accumalative_avg(lines,prev_lines):
+    if lines is not None:
+        if len(lines)<3:
+            prev_lines.append(lines)
+        else:
+            prev_lines = prev_lines[1:]+[lines]
+        return lines, prev_lines
+    elif len(prev_lines)!=0:
+        total:np.ndarray = np.array(prev_lines)
+        return np.average(total,axis=0), prev_lines
+    else:
+        return np.nan, prev_lines
+
+
+
 
