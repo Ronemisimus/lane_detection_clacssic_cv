@@ -3,52 +3,32 @@ import numpy as np
 
 def process(frame:np.ndarray,prev_lines):
     height, width, depth = frame.shape    
-    checked_area = frame.copy()
 
-    checked_area = equalize_per_channel(checked_area)
+    work_frame = equalize_per_channel(frame)
 
-    checked_area = to_gray(checked_area)
+    work_frame = blur(work_frame,(3,3))
 
-    checked_area = blur(checked_area,(5,5))
+    work_frame = close(work_frame,left_lane_kernel(3,20))
 
-    high = 360
-    low=high//3
+    work_frame = close(work_frame,right_lane_kernel(3,20))
 
-    edges = canny(checked_area,low,high)
+    high = 160
+    low = high//2
+    work_frame = canny(to_gray(work_frame),low,high)
 
-    checked_area = frame.copy()
+    work_frame = cut_img_center(work_frame,width,height)
 
-    checked_area = equalize_per_channel(checked_area)
+    lines = get_lines(work_frame)    
 
-    checked_area = close(checked_area,left_lane_kernel(3,5))
-    checked_area = close(checked_area,right_lane_kernel(3,5))
+    left_lane, right_lane = separate_lines(lines,0.5)
 
-    dual_sobel = vertical_sobel(checked_area)
+    lines = choose_best_lines(frame,left_lane,right_lane)
 
-    dual_sobel = equalize_per_channel(dual_sobel)
-
-    high = 850
-    low=high//2
-    dual_sobel = canny(dual_sobel,low,high)
-
-    checked_area = np.bitwise_and(edges,dual_sobel)
-
-    # extract triangle from image
-    checked_area = cut_img_center(checked_area,width,height)
-
-    lines = get_lines(checked_area)
-    left_lane,right_lane = separate_lines(lines,0.3)
-
-    lines = choose_best_lines(frame,left_lane, right_lane)
-
-    lines, prev_lines = accumalative_avg(lines,prev_lines)
-    
     if lines is not None and np.sum(np.isnan(lines))==0:
-        lines = np.int32(lines)
         x1,y1,x2,y2 = lines[0]
-        cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 10)
+        cv2.line(frame,(x1,y1), (x2,y2),(255,0,0),2)
         x1,y1,x2,y2 = lines[1]
-        cv2.line(frame, (x1, y1), (x2, y2), (255, 0, 0), 10)  
+        cv2.line(frame,(x1,y1), (x2,y2),(255,0,0),2)
 
     return frame, prev_lines
 
@@ -86,7 +66,7 @@ def equalize_per_channel(img):
     return cv2.merge((b,g,r))
 
 def histEquallize(img):
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(16,16))
 
     return clahe.apply(img)
 
@@ -136,7 +116,7 @@ def close(img,kernel):
     return cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
 
 def get_lines(edges):
-    return cv2.HoughLinesP(edges,1,np.pi/180,10,minLineLength=30,maxLineGap=10)
+    return cv2.HoughLinesP(edges,1,np.pi/180,50,minLineLength=20,maxLineGap=10)
 
 def separate_lines(lines, tol):
     right_lane = []
