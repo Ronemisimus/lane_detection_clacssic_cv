@@ -24,11 +24,7 @@ def process(frame:np.ndarray,prev_lines):
 
     lines = choose_best_lines(frame,left_lane,right_lane)
 
-    if lines is not None and np.sum(np.isnan(lines))==0:
-        x1,y1,x2,y2 = lines[0]
-        cv2.line(frame,(x1,y1), (x2,y2),(255,0,0),2)
-        x1,y1,x2,y2 = lines[1]
-        cv2.line(frame,(x1,y1), (x2,y2),(255,0,0),2)
+    draw_lines(frame,lines,(0,255,0),False)
 
     return frame, prev_lines
 
@@ -140,7 +136,7 @@ def choose_best_lines(img,left_lane,right_lane):
         left_avg = np.average(left_lane, axis=0)
         left_line = make_points(img, left_avg)
         right_line = make_points(img, right_avg)
-        return np.array([left_line, right_line])
+        return [left_line, right_line]
     return None
 
 def make_points(image, average): 
@@ -164,6 +160,13 @@ def accumalative_avg(lines,prev_lines):
     else:
         return np.nan, prev_lines
 
-
+def draw_lines(img, lines,color,run_make_points):
+    if lines is not None and np.sum(np.isnan(lines))==0:
+        for line in lines:
+            if run_make_points:
+                x1,y1,x2,y2 = make_points(img,line)
+            else:
+                x1,y1,x2,y2 = line
+            cv2.line(img, (x1,y1),(x2,y2),color,2)
 
 
