@@ -164,6 +164,13 @@ def accumalative_avg(lines,prev_lines):
     else:
         return np.nan, prev_lines
 
-
+def draw_lines(img, lines,color,run_make_points):
+    if lines is not None and np.sum(np.isnan(lines))==0:
+        for line in lines:
+            if run_make_points:
+                x1,y1,x2,y2 = make_points(img,line)
+            else:
+                x1,y1,x2,y2 = line
+            cv2.line(img, (x1,y1),(x2,y2),color,2)
 
 
