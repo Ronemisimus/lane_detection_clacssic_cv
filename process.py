@@ -12,29 +12,44 @@ def process(frame:np.ndarray,prev_lines):
 
     work_frame = close(work_frame,right_lane_kernel(3,20))
 
+    work_frame = close(work_frame,np.ones((20,1)))
+
     high = 160
-    low = high//2
+    low = high*2//3
     work_frame = canny(to_gray(work_frame),low,high)
+
+    work_frame = cv2.Laplacian(work_frame,-1,ksize=5)
+
+    work_frame = close(work_frame,np.ones(3))
 
     work_frame = cut_img_center(work_frame,width,height)
 
     lines = get_lines(work_frame)    
 
-    left_lane, right_lane = separate_lines(lines,0.5)
+    #lines = [line[0] for line in lines]
+    #draw_lines(frame,lines,(0,0,255),False)
+
+    left_lane, right_lane = separate_lines(lines,20*np.pi/180,width,height)
+
+    #draw_lines(frame,left_lane,(255,0,0),True)
+    #draw_lines(frame,right_lane,(0,255,0),True)
+    
 
     lines = choose_best_lines(frame,left_lane,right_lane)
 
-    draw_lines(frame,lines,(0,255,0),False)
+    lines, prev_lines = accumalative_avg(lines,prev_lines)
 
-    frame = draw_rect(frame, lines, (0,255,0))
+    draw_lines(frame,lines,(0,255,0),True)
+
+    frame = draw_rect(frame, lines, (0,255,0),True)
 
     return frame, prev_lines
 
 def cut_img_center(img,width,height):
     center_left = [width//2-width//20,height//2]
-    center_right = [width//2-width//20,height//2]
-    right = [width,height-height//10]
-    left = [0,height-height//10]
+    center_right = [width//2+width//20,height//2]
+    right = [width,height-height//4]
+    left = [0,height-height//4]
     left_corner=[0,height]
     right_corner=[width,height]
 
@@ -54,7 +69,7 @@ def cut_img_center(img,width,height):
 
     cv2.fillPoly(mask,pts,color=WHITE)
 
-    img = np.where(mask ==1,img,0)
+    img = np.where(mask==1,img,0)
 
     return img
 
@@ -116,49 +131,100 @@ def close(img,kernel):
     return cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel)
 
 def get_lines(edges):
-    return cv2.HoughLinesP(edges,1,np.pi/180,50,minLineLength=20,maxLineGap=10)
+    return cv2.HoughLinesP(edges,1,np.pi/180,40,minLineLength=20,maxLineGap=10)
 
-def separate_lines(lines, tol):
+def separate_lines(lines, tol,width,height):
     right_lane = []
     left_lane = []
+    x_offset_tol_out = width*2/3
+    x_offset_tol_in = width/4
+    refrence_vector = np.array([0,1])
     if lines is not None:
         for line in lines:
             x1,y1,x2,y2 = line[0]
-            p = np.polyfit([x1,x2],[y1,y2],1)
-            if p[0]>=tol:
-                right_lane.append(p)
-            elif p[0]<=-tol:
-                left_lane.append(p)
+            max_y = max(y1,y2)
+            if max_y == y1:
+                x1,x2 = x2,x1
+                y1,y2 = y2,y1 
+            line_base = np.array([y2-y1,x2-x1])
+            line_base_norm = line_base/np.linalg.norm(line_base)
+            theta = np.arccos(refrence_vector@line_base_norm)
+            base_mult = (height-y2)/line_base[0]
+            base_point = np.array([y2,x2])+base_mult*line_base
+            x_base = base_point[1]
+            if theta > tol and theta< np.pi-tol and x_base != np.inf and x_base!=-np.inf:
+                if theta>=np.pi/2 and x_base < width/2 - x_offset_tol_in and x_base>-x_offset_tol_out:
+                    left_lane.append((theta,x_base))
+                elif theta <=np.pi/2 and x_base > width/2 + x_offset_tol_in and x_base<width+x_offset_tol_out:
+                    right_lane.append((theta,x_base))
     return left_lane, right_lane
 
+def group_lines(lines,steps,field):
+    line_groups = []
+    line_group_centers=[]
+    for line in lines:
+        index, = np.nonzero(np.abs(np.array(line_group_centers)-line[field])<steps)
+        if len(index)==0:
+            line_groups.append([line])
+            line_group_centers.append(line[field])
+        else:
+            index = np.argmin(np.array(line_group_centers)-line[field])
+            line_groups[index].append(line)
+            line_group_centers[index] = np.average(line_groups[index],axis=0)[field]
+    return line_groups, line_group_centers
+
+
+
 def choose_best_lines(img,left_lane,right_lane):
+    width = img.shape[1]
     # choose best lines
     if len(left_lane)>0 and len(right_lane)>0:
-        right_avg = np.average(right_lane, axis=0)
-        left_avg = np.average(left_lane, axis=0)
-        left_line = make_points(img, left_avg)
-        right_line = make_points(img, right_avg)
-        return [left_line, right_line]
+        left_lane_groups, left_lane_groups_centers = group_lines(left_lane,100,1)
+        right_lane_groups, right_lane_groups_centers = group_lines(right_lane,10,1)
+        close_group_left = np.argmin(abs(np.array(left_lane_groups_centers)-width/2))
+        close_group_right = np.argmin(abs(np.array(right_lane_groups_centers)-width/2))
+        left_lane_groups, left_lane_groups_centers = group_lines(left_lane_groups[close_group_left],5*np.pi/180,0)
+        right_lane_groups, right_lane_groups_centers = group_lines(right_lane_groups[close_group_right],5*np.pi/180,0)
+        max_group_left = np.argmin(abs(np.array(left_lane_groups_centers)-3*np.pi/4))
+        max_group_right = np.argmin(abs(np.array(right_lane_groups_centers)-np.pi/4))
+        right_avg = np.average(right_lane_groups[max_group_right], axis=0)
+        left_avg = np.average(left_lane_groups[max_group_left], axis=0)
+        return [left_avg, right_avg]
     return None
 
 def make_points(image, average): 
-    slope, y_int = average 
+    theta, x_base = average
+    height,width,depth = image.shape
+    x = np.cos(theta)
+    base = np.array([np.sqrt(1-np.square(x)),x])
+    base_point = np.array([height,x_base])
     y1 = image.shape[0]*6//7
-    y2 = int(y1*8//12)
-    x1 = int((y1-y_int)//slope)
-    x2 = int((y2-y_int)//slope)
+    pt1_mult = (height-y1)/base[0]
+    x1 = base_point - pt1_mult*base
+    x1 = int(x1[1])
+    y2 = int(y1*2//3)
+    pt2_mult = (height-y2)/base[0]
+    x2 = base_point - pt2_mult*base
+    x2 = int(x2[1])
     return np.array([x1, y1, x2, y2])
 
 def accumalative_avg(lines,prev_lines):
     if lines is not None:
-        if len(lines)<3:
+        if len(prev_lines)<2:
             prev_lines.append(lines)
         else:
             prev_lines = prev_lines[1:]+[lines]
+        temp_prev_lines = np.array(prev_lines)
+        w = np.ones((len(temp_prev_lines)))
+        w[-1] = 2
+        lines:np.ndarray = np.average(temp_prev_lines,axis=0,weights=w)
+        lines = [line for line in lines]
         return lines, prev_lines
     elif len(prev_lines)!=0:
         total:np.ndarray = np.array(prev_lines)
-        return np.average(total,axis=0), prev_lines
+        lines = np.average(total,axis=0)
+        lines = [line for line in lines]
+        return lines, prev_lines
     else:
         return np.nan, prev_lines
 
@@ -172,10 +238,16 @@ def draw_lines(img, lines,color,run_make_points):
             cv2.line(img, (x1,y1),(x2,y2),color,2)
 
 
-def draw_rect(frame,lines,color):
+def draw_rect(frame,lines,color,run_make_points):
     line_img = np.zeros_like(frame)
     if lines is not None and np.sum(np.isnan(lines))==0:
-        pts = [np.array([lines[0][0:2],lines[0][2:],lines[1][2:],lines[1][0:2]])]
+        if run_make_points:
+            x1,y1,x2,y2 = make_points(frame,lines[0])
+            x3,y3,x4,y4 = make_points(frame,lines[1])
+        else:
+            x1,y1,x2,y2 = lines[0]
+            x3,y3,x4,y4 = lines[1]
+        pts = [np.array([[x1,y1],[x2,y2],[x4,y4],[x3,y3]])]
         
         cv2.fillPoly(line_img,pts,color=color)
     frame = cv2.addWeighted(frame,0.8,line_img,0.2,10)
