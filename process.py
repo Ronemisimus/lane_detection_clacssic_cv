@@ -26,6 +26,8 @@ def process(frame:np.ndarray,prev_lines):
 
     draw_lines(frame,lines,(0,255,0),False)
 
+    frame = draw_rect(frame, lines, (0,255,0))
+
     return frame, prev_lines
 
 def cut_img_center(img,width,height):
@@ -141,8 +143,8 @@ def choose_best_lines(img,left_lane,right_lane):
 
 def make_points(image, average): 
     slope, y_int = average 
-    y1 = image.shape[0]
-    y2 = int(y1*3//5)
+    y1 = image.shape[0]*6//7
+    y2 = int(y1*8//12)
     x1 = int((y1-y_int)//slope)
     x2 = int((y2-y_int)//slope)
     return np.array([x1, y1, x2, y2])
@@ -169,4 +171,13 @@ def draw_lines(img, lines,color,run_make_points):
                 x1,y1,x2,y2 = line
             cv2.line(img, (x1,y1),(x2,y2),color,2)
 
+
+def draw_rect(frame,lines,color):
+    line_img = np.zeros_like(frame)
+    if lines is not None and np.sum(np.isnan(lines))==0:
+        pts = [np.array([lines[0][0:2],lines[0][2:],lines[1][2:],lines[1][0:2]])]
+        
+        cv2.fillPoly(line_img,pts,color=color)
+    frame = cv2.addWeighted(frame,0.8,line_img,0.2,10)
+    return frame
 
