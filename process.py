@@ -24,7 +24,7 @@ def process(frame:np.ndarray,prev_lines):
 
     lines = choose_best_lines(frame,left_lane,right_lane)
 
-    lines, prev_lines = accumalative_avg(lines,prev_lines)
+    #lines, prev_lines = accumalative_avg(lines,prev_lines)
 
     draw_lines(frame,lines,(0,0,255),True)
 

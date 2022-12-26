@@ -10,7 +10,7 @@ logger = logging.getLogger("lane detector")
 logger.setLevel(logging.DEBUG)
 
 save = True
-out_fname = "first_algo_lane_detection.mp4"
+out_fname = "out_videos/first_algo_lane_detection.mp4"
 
 # create console handler with a higher log level
 ch = logging.StreamHandler(sys.stdout)
