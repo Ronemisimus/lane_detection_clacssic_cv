@@ -1,20 +1,19 @@
 import cv2
 import numpy as np
 
-def process(frame:np.ndarray,prev_lines):
+HISTORY_LEN = 3
+LANE_SWITCH_TOL=100
+
+def process(frame:np.ndarray,prev_lines,message,counter):
     height, width, depth = frame.shape    
 
     work_frame = equalize_per_channel(frame)
 
-    work_frame = blur(work_frame,(3,3))
+    work_frame = hls_transform(work_frame)
 
-    work_frame = close(work_frame,left_lane_kernel(3,20))
+    #work_frame = close(work_frame,left_lane_kernel(3,5))
 
-    work_frame = close(work_frame,right_lane_kernel(3,20))
-
-    high = 160
-    low = high*2//3
-    work_frame = canny(to_gray(work_frame),low,high)
+    #work_frame = close(work_frame,right_lane_kernel(3,5))
 
     work_frame = cut_img_center(work_frame,width,height)
 
@@ -24,17 +23,79 @@ def process(frame:np.ndarray,prev_lines):
 
     lines = choose_best_lines(frame,left_lane,right_lane)
 
-    #lines, prev_lines = accumalative_avg(lines,prev_lines)
+    lines, prev_lines = accumalative_avg(lines,prev_lines)
+
+    if len(prev_lines)==HISTORY_LEN:
+        if moving_right(frame,prev_lines):
+            counter=0
+            message = "switching lane to the right"
+        elif moving_left(frame,prev_lines):
+            counter=0
+            message = "switching lane to the left"
+        else:
+            message=''
+    if counter<60:
+        counter+=1
+        cv2.putText(frame,message,(width//2,height//2),cv2.FONT_HERSHEY_PLAIN,1,(255,0,0),1)
+        
 
     draw_lines(frame,lines,(0,0,255),True)
 
     frame = draw_rect(frame, lines, (255,255,255),True)
 
-    return frame, prev_lines
+    return frame, prev_lines, message, counter
+
+def moving_right(frame, prev_lines):
+    x1,y1,x2,y2 = make_points(frame,prev_lines[0][0])
+    center_left_old = np.array([y2-y1,x2-x1])
+    x1,y1,x2,y2 = make_points(frame,prev_lines[0][1])
+    center_right_old = np.array([y2-y1,x2-x1])
+    x1,y1,x2,y2 = make_points(frame,prev_lines[-1][0])
+    center_left_new = np.array([y2-y1,x2-x1])
+    x1,y1,x2,y2 = make_points(frame,prev_lines[-1][1])
+    center_right_new = np.array([y2-y1,x2-x1])
+    center_point = np.array([frame.shape[0]/2,frame.shape[1]/2])
+
+    left_dist = np.linalg.norm(center_point- center_left_old)
+    left_new_dist = np.linalg.norm(center_point- center_left_new)
+    right_dist = np.linalg.norm(center_point- center_right_old)
+    right_new_dist = np.linalg.norm(center_point- center_right_new)
+
+    print(left_dist, left_new_dist)
+    print(right_dist,right_new_dist)
+    if left_new_dist > left_dist + LANE_SWITCH_TOL and \
+        right_new_dist + LANE_SWITCH_TOL < right_dist: 
+        return True
+    else:
+        return False 
+    
+
+def moving_left(frame, prev_lines):
+    x1,y1,x2,y2 = make_points(frame,prev_lines[0][0])
+    center_left_old = np.array([y2-y1,x2-x1])
+    x1,y1,x2,y2 = make_points(frame,prev_lines[0][1])
+    center_right_old = np.array([y2-y1,x2-x1])
+    x1,y1,x2,y2 = make_points(frame,prev_lines[-1][0])
+    center_left_new = np.array([y2-y1,x2-x1])
+    x1,y1,x2,y2 = make_points(frame,prev_lines[-1][1])
+    center_right_new = np.array([y2-y1,x2-x1])
+    center_point = np.array([frame.shape[0]/2,frame.shape[1]/2])
+
+    left_dist = np.linalg.norm(center_point- center_left_old)
+    left_new_dist = np.linalg.norm(center_point- center_left_new)
+    right_dist = np.linalg.norm(center_point- center_right_old)
+    right_new_dist = np.linalg.norm(center_point- center_right_new)
+    if right_new_dist > right_dist + LANE_SWITCH_TOL and \
+        left_new_dist + LANE_SWITCH_TOL < left_dist:
+        return True
+    else:
+        return False 
+    
+    
 
 def cut_img_center(img,width,height):
-    center_left = [width//2-width//20,height//2]
-    center_right = [width//2+width//20,height//2]
+    center_left = [width//2-width//20,height//2+height//40]
+    center_right = [width//2+width//20,height//2+height//40]
     right = [width,height-height//4]
     left = [0,height-height//4]
     left_corner=[0,height]
@@ -84,17 +145,19 @@ def left_lane_kernel(k,m):
         for i in range(0,m-k+1)
     ])
 
-def hsl_transform(img):
-    img = cv2.cvtColor(img,cv2.COLOR_BGR2HLS_FULL)
-
-    low_yellow = (73,161,120)
-    high_yellow = (86,254,255)
-
-    yellow_mask = cv2.inRange(img,low_yellow,high_yellow)
-
-    white_mask = cv2.inRange(img,200,255)
-
-    return np.bitwise_or(yellow_mask,white_mask)
+def hls_transform(img):
+    img_hls = cv2.cvtColor(img,cv2.COLOR_BGR2HLS_FULL)
+    high = 520
+    low = high*2//3
+    light_canny = canny(img_hls[:,:,1],low,high)
+    ret, high_sat = cv2.threshold(img_hls[:,:,2],80,1,cv2.THRESH_BINARY)
+    ret, high_red = cv2.threshold(img[:,:,2],200,1,cv2.THRESH_BINARY)
+    ret, high_green = cv2.threshold(img[:,:,1],200,1,cv2.THRESH_BINARY)
+    red_green_and = cv2.bitwise_and(high_red,high_green)
+    threshold_and = cv2.bitwise_and(red_green_and,high_sat)
+    res = cv2.bitwise_or(threshold_and,light_canny)
+    res[res==1]=255
+    return res
 
 def vertical_sobel(img):
     left = cv2.Sobel(img,cv2.CV_8U,1,0,ksize=3)
@@ -197,7 +260,7 @@ def make_points(image, average):
 
 def accumalative_avg(lines,prev_lines):
     if lines is not None:
-        if len(prev_lines)<2:
+        if len(prev_lines)<HISTORY_LEN:
             prev_lines.append(lines)
         else:
             prev_lines = prev_lines[1:]+[lines]
