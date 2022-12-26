@@ -6,29 +6,7 @@ def process(frame:np.ndarray,prev_lines):
 
     work_frame = equalize_per_channel(frame)
 
-    work_frame = blur(work_frame,(3,3))
-
-    work_frame = close(work_frame,left_lane_kernel(3,20))
-
-    work_frame = close(work_frame,right_lane_kernel(3,20))
-
-    high = 160
-    low = high*2//3
-    work_frame = canny(to_gray(work_frame),low,high)
-
-    work_frame = cut_img_center(work_frame,width,height)
-
-    lines = get_lines(work_frame)    
-
-    left_lane, right_lane = separate_lines(lines,15*np.pi/180,width,height)
-
-    lines = choose_best_lines(frame,left_lane,right_lane)
-
-    #lines, prev_lines = accumalative_avg(lines,prev_lines)
-
-    draw_lines(frame,lines,(0,0,255),True)
-
-    frame = draw_rect(frame, lines, (255,255,255),True)
+    
 
     return frame, prev_lines
 
