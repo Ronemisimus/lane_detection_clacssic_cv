@@ -12,36 +12,23 @@ def process(frame:np.ndarray,prev_lines):
 
     work_frame = close(work_frame,right_lane_kernel(3,20))
 
-    work_frame = close(work_frame,np.ones((20,1)))
-
     high = 160
     low = high*2//3
     work_frame = canny(to_gray(work_frame),low,high)
-
-    work_frame = cv2.Laplacian(work_frame,-1,ksize=5)
-
-    work_frame = close(work_frame,np.ones(3))
 
     work_frame = cut_img_center(work_frame,width,height)
 
     lines = get_lines(work_frame)    
 
-    #lines = [line[0] for line in lines]
-    #draw_lines(frame,lines,(0,0,255),False)
-
-    left_lane, right_lane = separate_lines(lines,20*np.pi/180,width,height)
-
-    #draw_lines(frame,left_lane,(255,0,0),True)
-    #draw_lines(frame,right_lane,(0,255,0),True)
-    
+    left_lane, right_lane = separate_lines(lines,15*np.pi/180,width,height)
 
     lines = choose_best_lines(frame,left_lane,right_lane)
 
     lines, prev_lines = accumalative_avg(lines,prev_lines)
 
-    draw_lines(frame,lines,(0,255,0),True)
+    draw_lines(frame,lines,(0,0,255),True)
 
-    frame = draw_rect(frame, lines, (0,255,0),True)
+    frame = draw_rect(frame, lines, (255,255,255),True)
 
     return frame, prev_lines
 
@@ -185,8 +172,8 @@ def choose_best_lines(img,left_lane,right_lane):
         close_group_right = np.argmin(abs(np.array(right_lane_groups_centers)-width/2))
         left_lane_groups, left_lane_groups_centers = group_lines(left_lane_groups[close_group_left],5*np.pi/180,0)
         right_lane_groups, right_lane_groups_centers = group_lines(right_lane_groups[close_group_right],5*np.pi/180,0)
-        max_group_left = np.argmin(abs(np.array(left_lane_groups_centers)-3*np.pi/4))
-        max_group_right = np.argmin(abs(np.array(right_lane_groups_centers)-np.pi/4))
+        max_group_left = np.argmax([len(group) for group in left_lane_groups])
+        max_group_right = np.argmax([len(group) for group in right_lane_groups])
         right_avg = np.average(right_lane_groups[max_group_right], axis=0)
         left_avg = np.average(left_lane_groups[max_group_left], axis=0)
         return [left_avg, right_avg]

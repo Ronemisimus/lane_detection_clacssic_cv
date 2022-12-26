@@ -9,6 +9,9 @@ import sys
 logger = logging.getLogger("lane detector")
 logger.setLevel(logging.DEBUG)
 
+save = True
+out_fname = "first_algo_lane_detection.mp4"
+
 # create console handler with a higher log level
 ch = logging.StreamHandler(sys.stdout)
 ch.setLevel(logging.DEBUG)
@@ -24,8 +27,10 @@ for f_vid in vid_files:
     # open video
     cap = cv2.VideoCapture(f_vid)
 
+    if save:
+        out = cv2.VideoWriter(out_fname, cv2.VideoWriter_fourcc(*'X264'),10, (1920,1080))
 
-    if not cap.isOpened():
+    if not cap.isOpened() or not out.isOpened():
         logger.error("cant open file %s",f_vid)
         exit(1)
     else:
@@ -40,6 +45,8 @@ for f_vid in vid_files:
             # Display the resulting frame
             cv2.imshow('Frame',frame)
         
+            if save:
+                out.write(frame)
             # Press Q on keyboard to  exit
             if cv2.waitKey(25) & 0xFF == ord('q'):
                 break
@@ -47,3 +54,5 @@ for f_vid in vid_files:
             # Break the loop
         else: 
             break
+    if save and out.isOpened():
+        out.release()
