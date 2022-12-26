@@ -9,8 +9,8 @@ import sys
 logger = logging.getLogger("lane detector")
 logger.setLevel(logging.DEBUG)
 
-save = True
-out_fname = "out_videos/first_algo_lane_detection.mp4"
+save = False
+out_fname = "out_videos/second_algo_lane_detection.mp4"
 
 # create console handler with a higher log level
 ch = logging.StreamHandler(sys.stdout)
@@ -30,7 +30,7 @@ for f_vid in vid_files:
     if save:
         out = cv2.VideoWriter(out_fname, cv2.VideoWriter_fourcc(*'X264'),10, (1920,1080))
 
-    if not cap.isOpened() or not out.isOpened():
+    if not cap.isOpened() or (save and not out.isOpened()):
         logger.error("cant open file %s",f_vid)
         exit(1)
     else:

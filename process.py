@@ -5,16 +5,31 @@ def process(frame:np.ndarray,prev_lines):
     height, width, depth = frame.shape    
 
     work_frame = equalize_per_channel(frame)
+    work_frame = frame.copy()
 
-    
+    work_frame = hls_transform(work_frame)
+
+    work_frame = cut_img_center(work_frame,width,height)
+
+    work_frame, transform = reverse_prespective(work_frame)
+
+    hist = histogram_matching(work_frame)
+
+    peak_left, peak_right = histogram_peaks(hist)
+
+    left_line, right_line = get_lines_with_sliding_window(work_frame,peak_left,peak_right,30,100)
+
+    if left_line is not None:
+
+        frame = draw_curve(frame,left_line,right_line,(0,255,0),transform)
 
     return frame, prev_lines
 
 def cut_img_center(img,width,height):
-    center_left = [width//2-width//20,height//2]
-    center_right = [width//2+width//20,height//2]
-    right = [width,height-height//4]
-    left = [0,height-height//4]
+    center_left = [width//2-width//10,height//2]
+    center_right = [width//2+width//10,height//2]
+    right = [width,height-height//5]
+    left = [0,height-height//5]
     left_corner=[0,height]
     right_corner=[width,height]
 
@@ -37,6 +52,39 @@ def cut_img_center(img,width,height):
     img = np.where(mask==1,img,0)
 
     return img
+
+def reverse_prespective(img):
+    height, width = img.shape[:2]
+    center_left = [width//2-width//10,height//2]
+    center_right = [width//2+width//10,height//2]
+    right = [width,height-height//5]
+    left = [0,height-height//5]
+    left_corner=[height,0]
+    right_corner=[height,width]
+    pts = np.float32([
+        center_left, # Top-left corner
+        left, # Bottom-left corner            
+        right, # Bottom-right corner
+        center_right # Top-right corner
+        ])
+    dts_pts = np.float32([
+        (0,0), # Top-left corner
+        left_corner, # Bottom-left corner            
+        right_corner, # Bottom-right corner
+        (0,width) # Top-right corner
+        ])
+    transform = cv2.getPerspectiveTransform(pts,dts_pts)
+    return cv2.warpPerspective(img,transform,img.shape[:2]).transpose(1,0), transform
+
+
+def histogram_matching(img):
+    return np.sum(img[img.shape[0]//2:,:], axis=0)
+
+def histogram_peaks(hist):
+    mid = hist.shape[0]//2
+    peak_left = np.argmax(hist[:mid],axis=0)
+    peak_right = np.argmax(hist[mid:],axis=0)+mid
+    return peak_left, peak_right
 
 def equalize_per_channel(img):
     b,g,r  = cv2.split(img)
@@ -62,17 +110,19 @@ def left_lane_kernel(k,m):
         for i in range(0,m-k+1)
     ])
 
-def hsl_transform(img):
-    img = cv2.cvtColor(img,cv2.COLOR_BGR2HLS_FULL)
-
-    low_yellow = (73,161,120)
-    high_yellow = (86,254,255)
-
-    yellow_mask = cv2.inRange(img,low_yellow,high_yellow)
-
-    white_mask = cv2.inRange(img,200,255)
-
-    return np.bitwise_or(yellow_mask,white_mask)
+def hls_transform(img):
+    img_hls = cv2.cvtColor(img,cv2.COLOR_BGR2HLS_FULL)
+    high = 520
+    low = high*2//3
+    light_canny = canny(img_hls[:,:,1],low,high)
+    ret, high_sat = cv2.threshold(img_hls[:,:,2],50,1,cv2.THRESH_BINARY)
+    ret, high_red = cv2.threshold(img[:,:,2],80,1,cv2.THRESH_BINARY)
+    ret, high_green = cv2.threshold(img[:,:,1],80,1,cv2.THRESH_BINARY)
+    red_green_and = cv2.bitwise_and(high_red,high_green)
+    threshold_and = cv2.bitwise_and(red_green_and,high_sat)
+    res = cv2.bitwise_or(threshold_and,light_canny)
+    res[res==1]=255
+    return res
 
 def vertical_sobel(img):
     left = cv2.Sobel(img,cv2.CV_8U,1,0,ksize=3)
@@ -217,4 +267,70 @@ def draw_rect(frame,lines,color,run_make_points):
         cv2.fillPoly(line_img,pts,color=color)
     frame = cv2.addWeighted(frame,0.8,line_img,0.2,10)
     return frame
+
+
+def get_lines_with_sliding_window(frame,peak_left,peak_right,w_num,w_width):
+    height,width = frame.shape
+    w_height = int(height//w_num)
+
+    left_lane_x = []
+    left_lane_y = []
+    right_lane_x = []
+    right_lane_y = []
+
+    current_left_center = peak_left
+    current_right_center = peak_right
+
+    w_span = w_width//2
+    
+    for window in range(w_num):
+        w_yb = height-(window+1)*w_height
+        w_yt = w_yb+w_height
+        w_xLl = current_left_center - w_span
+        w_xLr = current_left_center + w_span
+        w_xRl = current_right_center - w_span
+        w_xRr = current_right_center + w_span
+        
+        good_left_ind = np.nonzero(frame[w_yb:w_yt,w_xLl:w_xLr])
+        good_right_ind = np.nonzero(frame[w_yb:w_yt,w_xRl:w_xRr])
+
+        good_left_ind = (good_left_ind[0],good_left_ind[1]+w_xLl)
+        good_right_ind = (good_right_ind[0],good_right_ind[1]+ w_xRl)
+
+        minpix = 0
+        if len(good_left_ind[0]) > minpix:
+            current_left_center = np.int(np.mean(good_left_ind[1]))
+        if len(good_right_ind[0]) > minpix:        
+            current_right_center = np.int(np.mean(good_right_ind[1]))
+        left_lane_x.append(good_left_ind[1])
+        left_lane_y.append(good_left_ind[0])
+        right_lane_x.append(good_right_ind[1])
+        right_lane_y.append(good_right_ind[0])
+        
+    left_lane_x = np.concatenate(left_lane_x)
+    left_lane_y = np.concatenate(left_lane_y)
+    right_lane_x = np.concatenate(right_lane_x)
+    right_lane_y = np.concatenate(right_lane_y)
+
+    if len(left_lane_x)>0 and len(right_lane_x)>0:
+        left_fit = np.polyfit(left_lane_y,left_lane_x,2)
+        right_fit = np.polyfit(right_lane_y,right_lane_x,2)
+        return left_fit,right_fit
+    return None, None
+
+
+def draw_curve(frame,left_line,right_line,color, transform):
+    height, width = frame.shape[:2]
+    Y_plot = np.linspace(0,height-1,height).round().astype(np.int32)
+    X_left = (left_line[0]*Y_plot**2+left_line[1]*Y_plot+left_line[2]).round().astype(np.int32) 
+    X_right = (right_line[0]*Y_plot**2+right_line[1]*Y_plot+right_line[2]).round().astype(np.int32)
+    out_img = np.zeros_like(frame)
+
+    pts_left = np.array([np.transpose(np.vstack([X_left, Y_plot]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([X_right, Y_plot])))])
+    pts = np.hstack((pts_left, pts_right))
+    cv2.fillPoly(out_img, np.int32([pts]), color)
+    #out_img = cv2.warpPerspective(out_img,transform,frame.shape[:2],cv2.WARP_INVERSE_MAP).transpose(1,0,-1)
+    return cv2.addWeighted(frame,0.8,out_img,0.2,20)
+
 
